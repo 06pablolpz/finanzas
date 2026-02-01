@@ -2,20 +2,19 @@ import streamlit as st
 import pandas as pd
 import sqlite3
 import plotly.express as px
+import calendar
 from datetime import datetime
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="Family Wealth", page_icon="💰", layout="wide")
 
 # --- CONEXIÓN BASE DE DATOS ---
-conn = sqlite3.connect('finanzas_pro_v4.db', check_same_thread=False)
+conn = sqlite3.connect('finanzas_pro_v5.db', check_same_thread=False)
 c = conn.cursor()
 
-# Tabla de Movimientos (Ingresos/Gastos)
+# Tablas
 c.execute('''CREATE TABLE IF NOT EXISTS movs 
-             (user TEXT, fecha TEXT, cat TEXT, concepto TEXT, monto REAL, tipo TEXT)''')
-
-# NUEVA TABLA: Huchas y Metas de Ahorro
+             (id INTEGER PRIMARY KEY AUTOINCREMENT, user TEXT, fecha TEXT, cat TEXT, concepto TEXT, monto REAL, tipo TEXT)''')
 c.execute('''CREATE TABLE IF NOT EXISTS ahorros 
              (id INTEGER PRIMARY KEY AUTOINCREMENT, user TEXT, nombre TEXT, meta REAL, actual REAL)''')
 conn.commit()
@@ -37,24 +36,24 @@ AUTH = {"Pablo": "1234", "Lucía": "5678"}
 if user != "Seleccionar" and pin == AUTH.get(user):
     colors = get_colors(user)
     
-    # Encabezado personalizado
+    # Encabezado
     color_titulo = "#FF69B4" if user == "Lucía" else "#1E90FF"
     st.markdown(f"<h1 style='color: {color_titulo};'>Hola, {user} 👋</h1>", unsafe_allow_html=True)
 
-    # --- PESTAÑAS (AHORA SON 4) ---
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 Dashboard", "💰 Huchas & Metas", "📅 Calendario", "📝 Añadir"])
+    # --- PESTAÑAS ---
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Dashboard", "📅 Calendario Visual", "✏️ Gestión & Edición", "💰 Huchas", "➕ Añadir"])
 
-    # Cargar datos generales
+    # Cargar datos
     df = pd.read_sql_query(f"SELECT * FROM movs WHERE user='{user}'", conn)
     df['fecha'] = pd.to_datetime(df['fecha'])
 
-    # Listas de categorías (Tus negocios + Lifestyle)
+    # Listas Categorías
     cats_pablo = ["🎟️ Entradas", "📈 Trading", "✈️ Viajes", "👔 Ropa", "🍔 Ocio/Cenas", "🏠 Casa", "🚗 Coche", "💸 Varios"]
     cats_lucia = ["🏠 Vivienda", "💅 Belleza", "👗 Ropa", "✈️ Viajes", "🍔 Comida", "🏦 Ahorro General", "🎁 Regalos"]
     lista_categorias = cats_pablo if user == "Pablo" else cats_lucia
 
     # ---------------------------------------------------------
-    # PESTAÑA 1: DASHBOARD
+    # TAB 1: DASHBOARD
     # ---------------------------------------------------------
     with tab1:
         if not df.empty:
@@ -64,110 +63,167 @@ if user != "Seleccionar" and pin == AUTH.get(user):
             
             c1, c2, c3 = st.columns(3)
             c1.metric("Balance Disponible", f"{balance:,.2f} €")
-            c2.metric("Total Ingresado", f"{ingresos:,.2f} €")
-            c3.metric("Total Gastado", f"{gastos:,.2f} €", delta_color="inverse")
-            
+            c2.metric("Ingresos", f"{ingresos:,.2f} €")
+            c3.metric("Gastos", f"{gastos:,.2f} €", delta_color="inverse")
             st.divider()
-
-            if user == "Pablo":
-                st.subheader("💼 Rendimiento de Negocios")
-                # Cálculos rápidos negocios Pablo
-                ent = df[df['cat'] == "🎟️ Entradas"]
-                trad = df[df['cat'] == "📈 Trading"]
-                ben_ent = ent[ent['tipo']=="Ingreso 💵"]['monto'].sum() - ent[ent['tipo']=="Gasto 💸"]['monto'].sum()
-                ben_trad = trad[trad['tipo']=="Ingreso 💵"]['monto'].sum() - trad[trad['tipo']=="Gasto 💸"]['monto'].sum()
-                
-                b1, b2 = st.columns(2)
-                b1.metric("🎟️ Entradas (Neto)", f"{ben_ent:,.2f} €")
-                b2.metric("📈 Trading (Neto)", f"{ben_trad:,.2f} €")
-
-            col_g1, col_g2 = st.columns(2)
-            with col_g1:
+            
+            # Gráficas
+            g1, g2 = st.columns(2)
+            with g1:
                 fig_pie = px.pie(df[df['tipo']=="Gasto 💸"], values='monto', names='cat', title="Gastos", hole=0.4, color_discrete_sequence=colors)
                 st.plotly_chart(fig_pie, use_container_width=True)
-            with col_g2:
+            with g2:
                 fig_bar = px.bar(df, x='fecha', y='monto', color='tipo', title="Evolución", color_discrete_map={"Ingreso 💵": "#00CC96", "Gasto 💸": "#EF553B"})
                 st.plotly_chart(fig_bar, use_container_width=True)
 
     # ---------------------------------------------------------
-    # PESTAÑA 2: HUCHAS Y METAS (¡LO NUEVO DE LUCÍA!)
+    # TAB 2: CALENDARIO VISUAL (TIPO APP)
     # ---------------------------------------------------------
     with tab2:
-        st.subheader("🎯 Mis Objetivos de Ahorro")
+        st.subheader("📅 Tu Agenda Financiera")
         
-        # 1. Crear Nueva Hucha
-        with st.expander("➕ Crear nueva Meta / Hucha"):
-            with st.form("nueva_hucha"):
-                new_name = st.text_input("Nombre de la meta", placeholder="Ej: Regalo Mamá, Boda, Coche...")
-                new_meta = st.number_input("¿Cuánto dinero necesitas?", min_value=1.0)
-                if st.form_submit_button("Crear Hucha"):
-                    c.execute("INSERT INTO ahorros (user, nombre, meta, actual) VALUES (?, ?, ?, 0)", (user, new_name, new_meta))
-                    conn.commit()
-                    st.success(f"¡Hucha '{new_name}' creada!")
-                    st.rerun()
-
-        # 2. Ver y Gestionar Huchas
-        huchas = pd.read_sql_query(f"SELECT * FROM ahorros WHERE user='{user}'", conn)
+        # Selectores de Fecha
+        col_cal1, col_cal2 = st.columns(2)
+        year_sel = col_cal1.selectbox("Año", [2024, 2025, 2026], index=2)
+        month_sel = col_cal2.selectbox("Mes", list(calendar.month_name)[1:], index=datetime.now().month-1)
         
-        if not huchas.empty:
-            for index, row in huchas.iterrows():
-                # Cálculo de progreso
-                progreso = min(1.0, row['actual'] / row['meta'])
-                porcentaje = int(progreso * 100)
-                
-                # Tarjeta visual para cada hucha
-                st.write(f"### {row['nombre']}")
-                col_h1, col_h2, col_h3 = st.columns([3, 1, 1])
-                
-                with col_h1:
-                    # Barra de progreso con color personalizado
-                    st.progress(progreso)
-                    st.caption(f"Tienes **{row['actual']}€** de **{row['meta']}€** ({porcentaje}%)")
-                
-                with col_h2:
-                    # Formulario pequeño para añadir dinero a esta hucha específica
-                    add_money = st.number_input(f"Añadir a {row['nombre']}", min_value=0.0, key=f"in_{row['id']}")
-                
-                with col_h3:
-                    if st.button(f"📥 Ingresar", key=f"btn_{row['id']}"):
-                        new_total = row['actual'] + add_money
-                        c.execute("UPDATE ahorros SET actual = ? WHERE id = ?", (new_total, row['id']))
-                        conn.commit()
-                        if new_total >= row['meta']:
-                            st.balloons()
-                            st.success(f"¡Felicidades! Completaste: {row['nombre']}")
-                        st.rerun()
-                st.divider()
-        else:
-            st.info("No tienes metas activas. ¡Crea una arriba!")
+        # Lógica del Calendario
+        month_idx = list(calendar.month_name).index(month_sel)
+        cal = calendar.monthcalendar(year_sel, month_idx)
+        
+        # Cabecera Días
+        dias_sem = ["LUN", "MAR", "MIE", "JUE", "VIE", "SAB", "DOM"]
+        cols = st.columns(7)
+        for idx, dia in enumerate(dias_sem):
+            cols[idx].markdown(f"**{dia}**", unsafe_allow_html=True)
+            
+        # Dibujar Rejilla
+        for week in cal:
+            cols = st.columns(7)
+            for idx, day in enumerate(week):
+                with cols[idx]:
+                    if day != 0:
+                        # Estilo de caja para el día
+                        st.markdown(f"""
+                        <div style="
+                            background-color: {'#262730' if user=='Pablo' else '#FFF0F5'}; 
+                            padding: 10px; border-radius: 10px; 
+                            border: 1px solid {'#444' if user=='Pablo' else '#FFB6C1'}; 
+                            min-height: 100px;">
+                            <strong style='color: {'white' if user=='Pablo' else '#D63384'}'>{day}</strong>
+                        """, unsafe_allow_html=True)
+                        
+                        # Buscar movimientos de este día
+                        fecha_actual = f"{year_sel}-{month_idx:02d}-{day:02d}"
+                        movs_dia = df[df['fecha'].dt.strftime('%Y-%m-%d') == fecha_actual]
+                        
+                        if not movs_dia.empty:
+                            for _, row in movs_dia.iterrows():
+                                # Pill visual (Etiqueta pequeña)
+                                color_pill = "#EF553B" if row['tipo'] == "Gasto 💸" else "#00CC96"
+                                st.markdown(f"""
+                                <div style="background-color: {color_pill}; color: white; padding: 2px 5px; border-radius: 4px; font-size: 10px; margin-bottom: 2px;">
+                                {row['monto']:.0f}€
+                                </div>
+                                """, unsafe_allow_html=True)
+                        
+                        st.markdown("</div>", unsafe_allow_html=True)
 
     # ---------------------------------------------------------
-    # PESTAÑA 3: CALENDARIO
+    # TAB 3: GESTIÓN Y EDICIÓN (MODIFICABLE)
     # ---------------------------------------------------------
     with tab3:
-        st.subheader("📅 Histórico")
+        st.subheader("✏️ Editar Movimientos")
+        st.info("💡 Haz doble clic en cualquier celda para editarla. Al terminar, pulsa el botón 'Guardar Cambios'.")
+        
+        # Editor de Datos (Data Editor)
         if not df.empty:
-            st.dataframe(df[['fecha', 'tipo', 'cat', 'concepto', 'monto']].sort_values('fecha', ascending=False), use_container_width=True)
+            # Ocultamos la columna 'user' para no liarla
+            df_editor = df.drop(columns=['user']).copy()
+            
+            edited_df = st.data_editor(
+                df_editor,
+                column_config={
+                    "id": st.column_config.NumberColumn(disabled=True), # El ID no se toca
+                    "fecha": st.column_config.DateColumn("Fecha"),
+                    "cat": st.column_config.SelectboxColumn("Categoría", options=lista_categorias),
+                    "tipo": st.column_config.SelectboxColumn("Tipo", options=["Gasto 💸", "Ingreso 💵", "Inversión 📈"]),
+                    "monto": st.column_config.NumberColumn("Monto (€)", format="%.2f €")
+                },
+                num_rows="dynamic",
+                key="editor_movimientos"
+            )
+            
+            if st.button("💾 Guardar Cambios en Base de Datos"):
+                # Proceso de guardado: Borramos y reescribimos los movimientos editados
+                # (Esta es la forma más segura para SQLite simple)
+                try:
+                    # 1. Iterar sobre las filas editadas
+                    for index, row in edited_df.iterrows():
+                        # Si tiene ID, actualizamos
+                        if pd.notna(row['id']):
+                            c.execute("""UPDATE movs SET fecha=?, cat=?, concepto=?, monto=?, tipo=? 
+                                         WHERE id=? AND user=?""", 
+                                      (row['fecha'].strftime('%Y-%m-%d'), row['cat'], row['concepto'], 
+                                       row['monto'], row['tipo'], row['id'], user))
+                    
+                    conn.commit()
+                    st.success("✅ ¡Base de datos actualizada correctamente!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error al guardar: {e}")
+        else:
+            st.write("No hay movimientos para editar.")
 
     # ---------------------------------------------------------
-    # PESTAÑA 4: AÑADIR GENERAL
+    # TAB 4: HUCHAS
     # ---------------------------------------------------------
     with tab4:
-        st.header("📝 Registrar Movimiento Diario")
-        with st.form("main_form", clear_on_submit=True):
+        st.subheader("🎯 Metas de Ahorro")
+        with st.expander("➕ Crear Nueva Hucha"):
+            with st.form("new_hucha"):
+                name = st.text_input("Nombre")
+                goal = st.number_input("Objetivo (€)", min_value=1.0)
+                if st.form_submit_button("Crear"):
+                    c.execute("INSERT INTO ahorros (user, nombre, meta, actual) VALUES (?, ?, ?, 0)", (user, name, goal))
+                    conn.commit()
+                    st.rerun()
+        
+        huchas = pd.read_sql_query(f"SELECT * FROM ahorros WHERE user='{user}'", conn)
+        for _, row in huchas.iterrows():
+            col_h1, col_h2 = st.columns([3, 1])
+            with col_h1:
+                st.write(f"**{row['nombre']}**")
+                progreso = min(1.0, row['actual'] / row['meta'])
+                st.progress(progreso)
+                st.caption(f"{row['actual']}€ / {row['meta']}€")
+            with col_h2:
+                add = st.number_input("Insertar €", key=f"add_{row['id']}")
+                if st.button("➕", key=f"btn_{row['id']}"):
+                    c.execute("UPDATE ahorros SET actual = ? WHERE id = ?", (row['actual'] + add, row['id']))
+                    conn.commit()
+                    st.rerun()
+            st.divider()
+
+    # ---------------------------------------------------------
+    # TAB 5: AÑADIR (RÁPIDO)
+    # ---------------------------------------------------------
+    with tab5:
+        st.header("📝 Añadir Rápido")
+        with st.form("fast_add", clear_on_submit=True):
             col_in1, col_in2 = st.columns(2)
             fecha = col_in1.date_input("Fecha", datetime.now())
             tipo = col_in2.radio("Tipo", ["Gasto 💸", "Ingreso 💵", "Inversión 📈"], horizontal=True)
+            cat = st.selectbox("Categoría", lista_categorias)
+            monto = st.number_input("Cantidad (€)", min_value=0.0)
+            concepto = st.text_input("Concepto")
             
-            col_in3, col_in4 = st.columns(2)
-            cat = col_in3.selectbox("Categoría", lista_categorias)
-            monto = col_in4.number_input("Cantidad (€)", min_value=0.0, step=10.0)
-            concepto = st.text_input("Concepto", placeholder="Detalle del gasto...")
-            
-            if st.form_submit_button("💾 Guardar"):
-                c.execute("INSERT INTO movs VALUES (?, ?, ?, ?, ?, ?)", (user, fecha, cat, concepto, monto, tipo))
+            if st.form_submit_button("Guardar"):
+                # Insertamos con NULL en ID para que sea autoincremental
+                c.execute("INSERT INTO movs (user, fecha, cat, concepto, monto, tipo) VALUES (?, ?, ?, ?, ?, ?)", 
+                          (user, fecha, cat, concepto, monto, tipo))
                 conn.commit()
-                st.success("Guardado")
+                st.success("Añadido")
 
 elif user != "Seleccionar":
     st.error("PIN Incorrecto")
