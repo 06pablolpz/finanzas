@@ -9,13 +9,13 @@ from datetime import datetime
 st.set_page_config(page_title="Family Wealth", page_icon="💰", layout="wide")
 
 # --- CONEXIÓN BASE DE DATOS ---
-conn = sqlite3.connect('finanzas_pro_v2.db', check_same_thread=False)
+conn = sqlite3.connect('finanzas_pro_v3.db', check_same_thread=False)
 c = conn.cursor()
 c.execute('''CREATE TABLE IF NOT EXISTS movs 
              (user TEXT, fecha TEXT, cat TEXT, concepto TEXT, monto REAL, tipo TEXT)''')
 conn.commit()
 
-# --- FUNCIONES DE ESTILO (SUTILES PARA NO ROMPER EL MODO OSCURO) ---
+# --- FUNCIONES DE ESTILO ---
 def get_colors(user):
     if user == "Lucía":
         # Paleta Rosa/Morada para gráficos
@@ -49,9 +49,17 @@ if user != "Seleccionar" and pin == AUTH.get(user):
     df = pd.read_sql_query(f"SELECT * FROM movs WHERE user='{user}'", conn)
     df['fecha'] = pd.to_datetime(df['fecha'])
 
-    # --- LÓGICA ESPECIAL PARA PABLO ---
-    cats_pablo = ["🎟️ Entradas", "📈 Trading", "🏠 Casa", "🍔 Comida", "🚗 Coche", "💸 Varios"]
-    cats_lucia = ["🏠 Vivienda", "💅 Belleza", "👗 Ropa", "✈️ Viajes", "🍔 Comida", "🏦 Ahorro"]
+    # --- LISTAS DE CATEGORÍAS PERSONALIZADAS ---
+    # AQUI ESTÁ EL CAMBIO: Tu lista ahora incluye ocio y vida
+    cats_pablo = [
+        "🎟️ Entradas", "📈 Trading",      # Negocios (Primero)
+        "✈️ Viajes", "👔 Ropa",           # Lifestyle
+        "🍔 Ocio/Cenas", "🏠 Casa",       # Básicos
+        "🚗 Coche/Moto", "📱 Tecnología", # Caprichos
+        "💸 Varios"
+    ]
+    
+    cats_lucia = ["🏠 Vivienda", "💅 Belleza", "👗 Ropa", "✈️ Viajes", "🍔 Comida", "🏦 Ahorro", "🎁 Regalos"]
     
     lista_categorias = cats_pablo if user == "Pablo" else cats_lucia
 
@@ -86,22 +94,13 @@ if user != "Seleccionar" and pin == AUTH.get(user):
                 # Calcular Trading
                 df_trading = df[df['cat'] == "📈 Trading"]
                 ing_trad = df_trading[df_trading['tipo'] == "Ingreso 💵"]['monto'].sum()
-                gas_trad = df_trading[df_trading['tipo'] == "Gasto 💸"]['monto'].sum() # Comisiones o pérdidas
+                gas_trad = df_trading[df_trading['tipo'] == "Gasto 💸"]['monto'].sum() 
                 profit_trad = ing_trad - gas_trad
 
                 # Tarjetas de Negocio
                 b1, b2 = st.columns(2)
                 b1.metric("🎟️ Beneficio Entradas", f"{profit_ent:,.2f} €", f"Ingresos: {ing_ent:,.0f}€")
                 b2.metric("📈 Beneficio Trading", f"{profit_trad:,.2f} €", f"Ingresos: {ing_trad:,.0f}€")
-
-                # Gráfico comparativo de negocios
-                negocios_data = pd.DataFrame({
-                    'Negocio': ['Entradas', 'Trading'],
-                    'Beneficio': [profit_ent, profit_trad]
-                })
-                fig_biz = px.bar(negocios_data, x='Negocio', y='Beneficio', color='Negocio', 
-                                 title="Comparativa de Rentabilidad", color_discrete_sequence=["#FFD700", "#00BFFF"])
-                st.plotly_chart(fig_biz, use_container_width=True)
 
             # 3. GRÁFICOS GENERALES (PARA AMBOS)
             st.subheader("Visión Global")
@@ -150,18 +149,18 @@ if user != "Seleccionar" and pin == AUTH.get(user):
             tipo = col_in2.radio("Tipo", ["Gasto 💸", "Ingreso 💵", "Inversión 📈"], horizontal=True)
             
             col_in3, col_in4 = st.columns(2)
-            # Aquí usamos la lista personalizada para Pablo o Lucía
-            cat = col_in3.selectbox("Categoría / Negocio", lista_categorias)
+            # Lista de categorías dinámica según quién sea
+            cat = col_in3.selectbox("Categoría", lista_categorias)
             monto = col_in4.number_input("Cantidad (€)", min_value=0.0, step=10.0)
             
-            concepto = st.text_input("Concepto / Notas", placeholder="Ej: Venta de entradas VIP, Stop loss Apple, Cena...")
+            concepto = st.text_input("Concepto / Notas", placeholder="Ej: Venta de entradas VIP, Chaqueta nueva, Vuelo a Roma...")
             
             if st.form_submit_button("💾 Guardar Registro"):
                 c.execute("INSERT INTO movs VALUES (?, ?, ?, ?, ?, ?)", 
                           (user, fecha, cat, concepto, monto, tipo))
                 conn.commit()
                 st.success(f"Añadido a {cat}")
-                st.balloons() # ¡Confirmación visual!
+                st.balloons() 
 
 elif user != "Seleccionar":
     st.error("PIN Incorrecto")
